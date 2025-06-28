@@ -46,3 +46,4 @@ src/sds.o
 src/sha1.o
 src/zipmap.o
 src/zmalloc.o
+.cache/*
