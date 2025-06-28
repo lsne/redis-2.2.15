@@ -19,11 +19,11 @@ QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(EN
 endif
 
 ifeq ($(uname_S),SunOS)
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wl,--allow-multiple-definition -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
   DEBUG?= -g -ggdb 
 else
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
+  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wl,--allow-multiple-definition -Wall -W $(ARCH) $(PROF)
   CCLINK?= -lm -pthread
   DEBUG?= -g -rdynamic -ggdb 
 endif
