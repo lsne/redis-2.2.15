@@ -2,7 +2,10 @@
  * Copyright (C) 2009-2010 Salvatore Sanfilippo - antirez@gmail.com
  * Released under the BSD license. See the COPYING file for more info. */
 
+#include "ae.h"
+#include "zmalloc.h"
 #include <sys/epoll.h>
+#include <unistd.h>
 
 typedef struct aeApiState {
     int epfd;

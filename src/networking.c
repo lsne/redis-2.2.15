@@ -17,6 +17,7 @@ redisClient *createClient(int fd) {
     anetNonBlock(NULL,fd);
     anetTcpNoDelay(NULL,fd);
     if (!c) return NULL;
+    // 将收到的客户端 connect() 请求生成的 fd 注册到 epool 红黑树上
     if (aeCreateFileEvent(server.el,fd,AE_READABLE,
         readQueryFromClient, c) == AE_ERR)
     {
@@ -408,6 +409,7 @@ static void acceptCommonHandler(int fd) {
     server.stat_numconnections++;
 }
 
+// 收到客户端发送过来的 tcp connect() 连接请求之后, 将连接注册到
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     char cip[128];

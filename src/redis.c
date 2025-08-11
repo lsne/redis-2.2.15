@@ -857,11 +857,11 @@ void initServer() {
     server.monitors = listCreate();                             // 创建一个链表用于存储 monitor 连接
     server.unblocked_clients = listCreate();                    // 创建一个链表用于存储被 unblocked 的客户端连接
     createSharedObjects();                                      // 创建共享的公共对象    
-    server.el = aeCreateEventLoop();                            // IO 多路复用机制, 创建 epoll 事件循环
+    server.el = aeCreateEventLoop();                            // IO 多路复用机制, 创建 epoll 事件循环, 这个比较重要, 后续的所有 socket 监听, tcp port 监听, socket 和 tcp 连接都会注册到这个 epoll 上面
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);    // 给 server.db 分配内存空间, 以保存每一个 db 的 key 数量, key过期时间等状态; 注意这里给每一个 db 分配的内存虽然很小, 但如果 db 数量太多, 也会大量的消耗内存 
 
     if (server.port != 0) {
-        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);  // socket 监听
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);  // tcp socket 监听, 集成 socket 三步: socket(), bind(), listen() 
         if (server.ipfd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
             exit(1);
@@ -869,13 +869,13 @@ void initServer() {
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket);                  // unix socket 监听
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket);                  // unix socket 监听, 集成 socket 三步: socket(), bind(), listen() 
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);
         }
     }
-    if (server.ipfd < 0 && server.sofd < 0) {
+    if (server.ipfd < 0 && server.sofd < 0) {                                                    // 要是 端口 和 socket 都没有, 直接退出
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -907,13 +907,13 @@ void initServer() {
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.unixtime = time(NULL);
-    aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);            // 定时事件的生成， 每 100 毫秒执行一次 serverCron 函数
-    if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
+    aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);            // 定时事件的生成，每 1ms 执行一次 serverCron 函数。 这个函数的内容不需要通过 epoll 和 socket 网络
+    if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,                    // 通过 epoll_ctl 将 port 监听事件注册到 epoll 红黑树, 注册之后, 一但有通过 port 与redis建立连接的请求, 就会被 epoll 捕获到, 然后通过该事件的处理函数 acceptTcpHandler 将新连接也注册到 epoll 红黑树上(在 createClient() 时注册)
         acceptTcpHandler,NULL) == AE_ERR) oom("creating file event");
-    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
+    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,                    // 通过 epoll_ctl 将 socket 监听事件注册到 epoll 红黑树, 注册之后, 一但有通过 socket 与redis建立连接的请求, 就会被 epoll 捕获到, 然后通过该事件的处理函数 acceptUnixHandler 将新连接也注册到 epoll 红黑树上(在 createClient() 时注册)
         acceptUnixHandler,NULL) == AE_ERR) oom("creating file event");
 
-    if (server.appendonly) {
+    if (server.appendonly) {  // 如果启用 aof, 打开 aof 文件
         server.appendfd = open(server.appendfilename,O_WRONLY|O_APPEND|O_CREAT,0644);
         if (server.appendfd == -1) {
             redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
@@ -1574,10 +1574,10 @@ int main(int argc, char **argv) {
     linuxOvercommitMemoryWarning();                               // 如果是 linux 系统, 则会检测内核参数 overcommit_memory 是否设置为1, 没有设置为1则会输出一个警告信息
 #endif
     start = time(NULL);                                    // 获取当前时间
-    if (server.appendonly) {
+    if (server.appendonly) {                                     // 如果开启 aof, 则将 aof 文件载入到内存
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);
-    } else {
+    } else {                                                     // 如果没开 aof, 则将 rdb 文件载入到内存
         if (rdbLoad(server.dbfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
     }
@@ -1585,9 +1585,9 @@ int main(int argc, char **argv) {
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
     if (server.sofd > 0)
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
-    aeSetBeforeSleepProc(server.el,beforeSleep);
-    aeMain(server.el);
-    aeDeleteEventLoop(server.el);
+    aeSetBeforeSleepProc(server.el,beforeSleep);   // 设置程序每次进入主循环 sleep 时, 需要调用的函数
+    aeMain(server.el);                                         // redis 主循环, 程序启动后会卡在这里来保证程序持续运行
+    aeDeleteEventLoop(server.el);                              // 程序结束时的清理操作
     return 0;
 }
 

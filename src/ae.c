@@ -69,7 +69,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     }
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    for (i = 0; i < AE_SETSIZE; i++)
+    for (i = 0; i < AE_SETSIZE; i++)    // 以 0 ~ 10240 作为数组下标, 初始化数组中的每一个元素, 使用时, 将文件描述符(fd), 作为下标在数值是进行元素查找
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
 }
@@ -291,7 +291,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
-        if (shortest) {
+        if (shortest) {                    // 整个 if else 这一大段, 看起来代码行比较多, 其实只不过是在计算时间事件的执行时间而已, 不用细看
             long now_sec, now_ms;
 
             /* Calculate the time missing for the nearest
@@ -320,7 +320,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
-        numevents = aeApiPoll(eventLoop, tvp);
+        numevents = aeApiPoll(eventLoop, tvp);   // 通过 epoll_wait 阻塞监听文件事件, 如果到下一个事件事件之前, 还没有事件发生, 则退出阻塞, 执行时间事件
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
@@ -336,13 +336,13 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!rfired || fe->wfileProc != fe->rfileProc)
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);       // 执行触发文件事件(tcp, stocket, connect() )之后, 实际应该执行的函数
             }
             processed++;
         }
     }
     /* Check time events */
-    if (flags & AE_TIME_EVENTS)
+    if (flags & AE_TIME_EVENTS)      // 处理时间事件
         processed += processTimeEvents(eventLoop);
 
     return processed; /* return the number of processed file/time events */
