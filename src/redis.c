@@ -985,6 +985,7 @@ void call(redisClient *c) {
  * If 1 is returned the client is still alive and valid and
  * and other operations can be performed by the caller. Otherwise
  * if 0 is returned the client was destroied (i.e. after QUIT). */
+ // 客户端请求过来时, 会在对客户端请求数据做完解析后, 根据解析出来的命令执行该函数。实际处理客户端需求
 int processCommand(redisClient *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -998,11 +999,14 @@ int processCommand(redisClient *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    // 找到对应的 redisCommand 条目
     c->cmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         addReplyErrorFormat(c,"unknown command '%s'",
             (char*)c->argv[0]->ptr);
         return REDIS_OK;
+    // 如果该命令是固定参数的命令(arity > 0), 传入参数个数与固定参数不匹配, 返回错误
+    // 如果该命令的参数个数不固定(arity <= 0), 则 arity 是个负数, 表示最大的个数的负值, 加 - 表示取成正值, 然后再判断命令传入的参数是否符合要求 
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
@@ -1011,6 +1015,7 @@ int processCommand(redisClient *c) {
     }
 
     /* Check if the user is authenticated */
+    //  服务器设置了密码, 客户端连接认证状态为未认证(0), 当前命令调用的函数不是认证函数,  则返回无权限操作
     if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
         addReplyError(c,"operation not permitted");
@@ -1022,7 +1027,9 @@ int processCommand(redisClient *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
+    // 如果设置了内存大小, 则先处理一次可能的内存释放操作
     if (server.maxmemory) freeMemoryIfNeeded();
+    // 如果设置了内存大小, 并且当前执行的命令会增加内存上限, 并且当前使用内存大小已经超过内存上限, 则报错返回
     if (server.maxmemory && (c->cmd->flags & REDIS_CMD_DENYOOM) &&
         zmalloc_used_memory() > server.maxmemory)
     {
@@ -1043,6 +1050,7 @@ int processCommand(redisClient *c) {
 
     /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
      * we are a slave with a broken link with master. */
+    // 从节点并且同步的主节点宕机时, 如果设置了配置文件参数 slave-serve-stale-data = 1, 则从节点上不允许执行除 info 和 slaveof 以外的命令
     if (server.masterhost && server.replstate != REDIS_REPL_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         c->cmd->proc != infoCommand && c->cmd->proc != slaveofCommand)
@@ -1053,12 +1061,15 @@ int processCommand(redisClient *c) {
     }
 
     /* Loading DB? Return an error if the command is not INFO */
+    // loading 过程中只允许执行 info 命令
     if (server.loading && c->cmd->proc != infoCommand) {
         addReply(c, shared.loadingerr);
         return REDIS_OK;
     }
 
     /* Exec the command */
+    // 如果命令是 multi 并且执行函数不是 exec multi discard watch 则将命令保存到命令对队中, 直到等到与 multi 匹配的 exec 命令后, 再依次执行
+    // 否则, 在判断 vm 之后，直接执行命令: call(c);
     if (c->flags & REDIS_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
@@ -1068,6 +1079,7 @@ int processCommand(redisClient *c) {
     } else {
         if (server.vm_enabled && server.vm_max_threads > 0 &&
             blockClientOnSwappedKeys(c)) return REDIS_ERR;
+        // 实际执行客户端命令操作
         call(c);
     }
     return REDIS_OK;

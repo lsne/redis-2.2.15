@@ -1,4 +1,5 @@
 #include "redis.h"
+#include <stdio.h>
 #include <sys/uio.h>
 
 void *dupClientReplyValue(void *o) {
@@ -699,6 +700,14 @@ static void setProtocolError(redisClient *c, int pos) {
     c->querybuf = sdsrange(c->querybuf,pos,-1);
 }
 
+// 对 客户端传入的请求命令做解析
+// 客户端传入的命令格式如下:
+// 操作命令: get a
+// 实际数据格式:
+// $3
+// get
+// $1
+// a
 int processMultibulkBuffer(redisClient *c) {
     char *newline = NULL;
     char *eptr;
@@ -789,9 +798,18 @@ int processMultibulkBuffer(redisClient *c) {
     return REDIS_ERR;
 }
 
+// 处理 redis 客户端命令
 void processInputBuffer(redisClient *c) {
     /* Keep processing while there is something in the input buffer */
     while(sdslen(c->querybuf)) {
+        printf("aaaaaaaaaa\n");
+        printf("client querybuf: %s\n", c->querybuf);
+        printf("client flags: %d\n", c->flags);
+        printf("client reqtype: %d\n", c->reqtype);
+        printf("bbbbbbbbb\n");
+        // printf("client cmd.name: %s", c->cmd->name);
+        // printf("client argc: %d", c->argc);
+
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
 
@@ -809,7 +827,8 @@ void processInputBuffer(redisClient *c) {
             }
         }
 
-        if (c->reqtype == REDIS_REQ_INLINE) {
+        // 解析客户端传入的数据, 并按参数顺序存入 c->argv
+        if (c->reqtype == REDIS_REQ_INLINE) {  // 内联格式就是命令中会包含 \r\n 换行之类的特殊字符, 使用场景不多,  只关心 协议格式(REDIS_REQ_MULTIBULK)即可
             if (processInlineBuffer(c) != REDIS_OK) break;
         } else if (c->reqtype == REDIS_REQ_MULTIBULK) {
             if (processMultibulkBuffer(c) != REDIS_OK) break;
@@ -822,12 +841,14 @@ void processInputBuffer(redisClient *c) {
             resetClient(c);
         } else {
             /* Only reset the client when the command was executed. */
+            // 执行命令
             if (processCommand(c) == REDIS_OK)
                 resetClient(c);
         }
     }
 }
 
+// 客户端连接的命令处理函数
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = (redisClient*) privdata;
     char buf[REDIS_IOBUF_LEN];

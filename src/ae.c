@@ -69,7 +69,9 @@ aeEventLoop *aeCreateEventLoop(void) {
     }
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    for (i = 0; i < AE_SETSIZE; i++)    // 以 0 ~ 10240 作为数组下标, 初始化数组中的每一个元素, 使用时, 将文件描述符(fd), 作为下标在数值是进行元素查找
+    // 以 0 ~ 10240 作为数组下标, 初始化数组中的每一个元素, 使用时, 将文件描述符(fd), 作为下标在数值是进行元素查找
+    // 当前 2.2.15 版本, AE_SETSIZE 值为 (1024*10), 所以 客户端连接最大不会超过 10240 个, 再大就会报错了
+    for (i = 0; i < AE_SETSIZE; i++)    
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
 }
@@ -320,7 +322,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
-        numevents = aeApiPoll(eventLoop, tvp);   // 通过 epoll_wait 阻塞监听文件事件, 如果到下一个事件事件之前, 还没有事件发生, 则退出阻塞, 执行时间事件
+        numevents = aeApiPoll(eventLoop, tvp);   // 通过 epoll_wait 阻塞监听文件事件, 如果到下一个时间事件之前, 还没有事件发生, 则退出阻塞, 执行时间事件
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
@@ -332,7 +334,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * processed, so we check if the event is still valid. */
             if (fe->mask & mask & AE_READABLE) {
                 rfired = 1;
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop,fd,fe->clientData,mask);  // 如果是 socket tcp 则执行 acceptTcpHandler, 如果是 socket unix 则执行 acceptUnixHandler, 如果是 connect 则执行 readQueryFromClient
             }
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!rfired || fe->wfileProc != fe->rfileProc)
